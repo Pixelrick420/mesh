@@ -137,18 +137,6 @@ export default function CanvasPage() {
                 setCanPlace(false);
                 setTimeRemaining(remainingTime);
 
-                // Start countdown
-                const timerInterval = setInterval(() => {
-                  setTimeRemaining((prev) => {
-                    if (prev <= 1) {
-                      clearInterval(timerInterval);
-                      setCanPlace(true);
-                      return 0;
-                    }
-                    return prev - 1;
-                  });
-                }, 1000);
-
                 return () => clearInterval(timerInterval);
               }
             } else {
@@ -689,20 +677,18 @@ export default function CanvasPage() {
         )}
       </div>
 
-      {/* Color tools - With draw mode button on mobile */}
+      {/* Color tools - With draw mode button for both mobile and PC */}
       <div
         ref={colorPaletteRef}
         style={styles.colorPickerContainer(theme, isMobile)}>
-        {isMobile && (
-          <div
-            style={{
-              ...styles.drawModeButton(theme),
-              backgroundColor: drawMode ? theme.buttonBg : theme.inputBg,
-            }}
-            onClick={toggleDrawMode}>
-            <Pen size={18} color={theme.textColor} />
-          </div>
-        )}
+        <div
+          style={{
+            ...styles.drawModeButton(theme),
+            backgroundColor: drawMode ? theme.buttonBg : theme.inputBg,
+          }}
+          onClick={toggleDrawMode}>
+          <Pen size={18} color={theme.textColor} />
+        </div>
 
         <div style={styles.colorPicker(theme, isMobile)}>
           {customColors.map((color, index) => (
@@ -858,7 +844,7 @@ const styles = {
     padding: isMobile ? "0.5rem 1rem" : "1rem 2rem",
     backgroundColor: theme.inputBg,
     borderBottom: `1px solid ${theme.borderColor}`,
-    zIndex: 10,
+    zIndex: 20,
     minHeight: isMobile ? "40px" : "auto",
   }),
   title: (theme, isMobile) => ({
@@ -883,6 +869,7 @@ const styles = {
     fontWeight: "bold",
     fontSize: "0.9rem",
     cursor: "pointer",
+    zIndex: 200,
   }),
   userStat: (theme) => ({
     color: theme.textColor,
@@ -894,7 +881,7 @@ const styles = {
     right: 0,
     backgroundColor: theme.inputBg,
     border: `1px solid ${theme.borderColor}`,
-    zIndex: 20,
+    zIndex: 1000,
     width: "180px",
     boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
   }),
