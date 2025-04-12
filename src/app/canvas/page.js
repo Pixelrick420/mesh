@@ -14,12 +14,18 @@ import {
 } from "firebase/firestore";
 import { SketchPicker } from "react-color";
 import { logout } from "../firebase";
+import { Pen } from "lucide-react";
 
 export default function CanvasPage() {
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(true);
   const [hoverInfo, setHoverInfo] = useState(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [touchStarted, setTouchStarted] = useState(false);
+  const [lastTouchDistance, setLastTouchDistance] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [drawMode, setDrawMode] = useState(true);
 
   // Define theme similar to login page
   const theme = {
@@ -49,6 +55,7 @@ export default function CanvasPage() {
   const canvasRef = useRef(null);
   const colorPaletteRef = useRef(null);
   const gridContainerRef = useRef(null);
+  const userMenuRef = useRef(null);
   const router = useRouter();
   const auth = getAuth();
   const firestore = getFirestore();
@@ -57,6 +64,42 @@ export default function CanvasPage() {
   const GRID_WIDTH = 200; // Number of cells in width
   const GRID_HEIGHT = 100; // Number of cells in height
   const COOLDOWN_TIME = 60; // Time in seconds before user can place another pixel
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    // Check on initial load
+    checkMobile();
+
+    // Add resize listener
+    window.addEventListener("resize", checkMobile);
+
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (
+        showUserMenu &&
+        userMenuRef.current &&
+        !userMenuRef.current.contains(e.target)
+      ) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [showUserMenu]);
 
   // Check authentication status
   useEffect(() => {
@@ -250,6 +293,101 @@ export default function CanvasPage() {
     }
   }, [gridData, zoom]);
 
+  // Touch event handlers for mobile
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    setTouchStarted(true);
+
+    if (e.touches.length === 1) {
+      // Single touch for dragging
+      setIsDragging(true);
+      setDragStart({
+        x: e.touches[0].clientX - position.x,
+        y: e.touches[0].clientY - position.y,
+      });
+    } else if (e.touches.length === 2) {
+      // Two touches for pinch-to-zoom
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      setLastTouchDistance(dist);
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+
+    if (!touchStarted) return;
+
+    if (e.touches.length === 1 && isDragging) {
+      // Handle dragging (panning)
+      setPosition({
+        x: e.touches[0].clientX - dragStart.x,
+        y: e.touches[0].clientY - dragStart.y,
+      });
+      setHoverInfo(null);
+    } else if (e.touches.length === 2 && lastTouchDistance !== null) {
+      // Handle pinch-to-zoom
+      const newDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+
+      const ratio = newDist / lastTouchDistance;
+      const newZoom = Math.min(Math.max(zoom * ratio, 0.5), 5);
+
+      setZoom(newZoom);
+      setLastTouchDistance(newDist);
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    // Determine if this was a tap or a drag
+    if (isDragging && touchStarted && !e.touches.length) {
+      // Only register a tap if we didn't move much
+      const moveThreshold = 10; // pixels
+      const moveX = Math.abs(
+        position.x - (dragStart.x - e.changedTouches[0].clientX)
+      );
+      const moveY = Math.abs(
+        position.y - (dragStart.y - e.changedTouches[0].clientY)
+      );
+
+      if (moveX < moveThreshold && moveY < moveThreshold && drawMode) {
+        // This was a tap, handle it like a click
+        handleCanvasTap(e.changedTouches[0]);
+      }
+    }
+
+    setIsDragging(false);
+    setTouchStarted(false);
+    setLastTouchDistance(null);
+  };
+
+  // Handle canvas tap for mobile
+  const handleCanvasTap = (touch) => {
+    if (!canvasRef.current || !drawMode) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = Math.floor((touch.clientX - rect.left) / (GRID_SIZE * zoom));
+    const y = Math.floor((touch.clientY - rect.top) / (GRID_SIZE * zoom));
+
+    // Ensure coordinates are within the grid
+    if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
+      const cellKey = `${x},${y}`;
+      setLastCellClicked(cellKey);
+
+      // Check if user can place a pixel
+      if (!canPlace || !user) {
+        console.log("Cannot place pixel now");
+        return;
+      }
+
+      placeTile(x, y);
+    }
+  };
+
   // Handle mouse down for dragging
   const handleMouseDown = (e) => {
     if (e.button === 0) {
@@ -375,23 +513,9 @@ export default function CanvasPage() {
     return null;
   };
 
-  // Handle cell click to place color
-  const handleCanvasClick = async (e) => {
-    // Prevent handling click if we're dragging
-    if (isDragging) return;
-
-    const coordinates = calculateGridCoordinates(e);
-    if (!coordinates) return;
-
-    const { x, y } = coordinates;
+  // Place a tile at the given coordinates
+  const placeTile = async (x, y) => {
     const cellKey = `${x},${y}`;
-    setLastCellClicked(cellKey);
-
-    // Check if user can place a pixel
-    if (!canPlace || !user) {
-      console.log("Cannot place pixel now");
-      return;
-    }
 
     try {
       // Update grid in Firestore
@@ -438,6 +562,27 @@ export default function CanvasPage() {
     }
   };
 
+  // Handle cell click to place color
+  const handleCanvasClick = async (e) => {
+    // Prevent handling click if we're dragging
+    if (isDragging || !drawMode) return;
+
+    const coordinates = calculateGridCoordinates(e);
+    if (!coordinates) return;
+
+    const { x, y } = coordinates;
+    const cellKey = `${x},${y}`;
+    setLastCellClicked(cellKey);
+
+    // Check if user can place a pixel
+    if (!canPlace || !user) {
+      console.log("Cannot place pixel now");
+      return;
+    }
+
+    placeTile(x, y);
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -460,6 +605,22 @@ export default function CanvasPage() {
     setEditingColorIndex(null);
   };
 
+  // Toggle the user menu on mobile
+  const toggleUserMenu = () => {
+    setShowUserMenu(!showUserMenu);
+  };
+
+  // Toggle drawing mode
+  const toggleDrawMode = () => {
+    setDrawMode(!drawMode);
+  };
+
+  // Mobile reset view button handler
+  const handleResetView = () => {
+    setPosition({ x: 0, y: 0 });
+    setZoom(1);
+  };
+
   // If still loading or user not authenticated, show loading screen or redirect
   if (loading) {
     return (
@@ -475,39 +636,89 @@ export default function CanvasPage() {
   }
 
   return (
-    <div style={styles.pageStyle(theme)}>
-      <div style={styles.header(theme)}>
-        <h1 style={styles.title(theme)}>Mesh.</h1>
-        <div style={styles.userInfo}>
-          <span style={styles.username(theme)}>@{username}</span>
-          <span style={styles.userStat(theme)}>
-            Total Placed: {totalPlaced}
-          </span>
-          <span style={styles.userStat(theme)}>
-            {canPlace
-              ? "Ready to place"
-              : `Next pixel in: ${formatTimeRemaining(timeRemaining)}`}
-          </span>
-          <button onClick={handleLogout} style={styles.logoutButton(theme)}>
-            Logout
-          </button>
-        </div>
+    <div style={styles.pageStyle(theme, isMobile)}>
+      {/* Header - Desktop stays the same, Mobile is horizontal */}
+      <div style={styles.header(theme, isMobile)}>
+        <h1 style={styles.title(theme, isMobile)}>Mesh.</h1>
+
+        {isMobile ? (
+          <div style={styles.userInfo(isMobile)}>
+            <div style={styles.usernameWrapper}>
+              <span style={styles.username(theme)} onClick={toggleUserMenu}>
+                @{username}
+              </span>
+
+              {showUserMenu && (
+                <div ref={userMenuRef} style={styles.userDropdown(theme)}>
+                  <div style={styles.dropdownItem}>
+                    <span>Total Placed: {totalPlaced}</span>
+                  </div>
+                  <div style={styles.dropdownItem}>
+                    <span>
+                      {canPlace
+                        ? "Ready to place"
+                        : `Next pixel: ${formatTimeRemaining(timeRemaining)}`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    style={styles.logoutButton(theme, isMobile)}>
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={styles.userInfo(isMobile)}>
+            <span style={styles.username(theme)}>@{username}</span>
+            <span style={styles.userStat(theme)}>
+              Total Placed: {totalPlaced}
+            </span>
+            <span style={styles.userStat(theme)}>
+              {canPlace
+                ? "Ready to place"
+                : `Next pixel in: ${formatTimeRemaining(timeRemaining)}`}
+            </span>
+            <button
+              onClick={handleLogout}
+              style={styles.logoutButton(theme, isMobile)}>
+              Logout
+            </button>
+          </div>
+        )}
       </div>
 
-      <div ref={colorPaletteRef} style={styles.colorPickerContainer(theme)}>
-        <div style={styles.colorPicker(theme)}>
+      {/* Color tools - With draw mode button on mobile */}
+      <div
+        ref={colorPaletteRef}
+        style={styles.colorPickerContainer(theme, isMobile)}>
+        {isMobile && (
+          <div
+            style={{
+              ...styles.drawModeButton(theme),
+              backgroundColor: drawMode ? theme.buttonBg : theme.inputBg,
+            }}
+            onClick={toggleDrawMode}>
+            <Pen size={18} color={theme.textColor} />
+          </div>
+        )}
+
+        <div style={styles.colorPicker(theme, isMobile)}>
           {customColors.map((color, index) => (
             <div
               key={`${color}-${index}`}
               style={{
-                ...styles.colorOption(theme),
+                ...styles.colorOption(theme, isMobile),
                 backgroundColor: color,
                 transform: selectedColor === color ? "scale(1.2)" : "scale(1)",
               }}
               onClick={() => handleColorClick(color, index)}
             />
           ))}
-          <div style={styles.addColorButton(theme)} onClick={addNewColor}>
+          <div
+            style={styles.addColorButton(theme, isMobile)}
+            onClick={addNewColor}>
             <span style={styles.customColorText}>+</span>
           </div>
         </div>
@@ -516,7 +727,7 @@ export default function CanvasPage() {
       {showColorPicker && (
         <div style={styles.popover}>
           <div style={styles.cover} onClick={closeColorPicker} />
-          <div style={styles.colorPickerWrapper}>
+          <div style={styles.colorPickerWrapper(isMobile)}>
             <SketchPicker
               color={
                 editingColorIndex !== null
@@ -545,22 +756,26 @@ export default function CanvasPage() {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        onClick={handleCanvasClick}>
+        onClick={handleCanvasClick}
+        onTouchStart={isMobile ? handleTouchStart : undefined}
+        onTouchMove={isMobile ? handleTouchMove : undefined}
+        onTouchEnd={isMobile ? handleTouchEnd : undefined}
+        onTouchCancel={isMobile ? handleTouchEnd : undefined}>
         <div
           style={{
             ...styles.canvasWrapper,
             transform: `translate(${position.x}px, ${position.y}px)`,
             cursor: isDragging
               ? "grabbing"
-              : canPlace
+              : canPlace && drawMode
               ? "pointer"
               : "not-allowed",
           }}>
           <canvas ref={canvasRef} style={styles.canvas} />
         </div>
 
-        {/* Hover tooltip */}
-        {hoverInfo && (
+        {/* Hover tooltip - only show on desktop */}
+        {hoverInfo && !isMobile && (
           <div
             style={{
               ...styles.hoverTooltip(theme),
@@ -582,17 +797,34 @@ export default function CanvasPage() {
             </div>
           </div>
         )}
+
+        {/* Mobile controls */}
+        {isMobile && (
+          <div style={styles.mobileControls(theme)}>
+            <button
+              style={styles.mobileControlButton(theme)}
+              onClick={handleResetView}>
+              Reset View
+            </button>
+          </div>
+        )}
       </div>
 
-      <div style={styles.instructions(theme)}>
-        <p>Drag to pan • Scroll to zoom • Click to place</p>
+      <div style={styles.instructions(theme, isMobile)}>
+        {isMobile ? (
+          <p style={styles.instructionText(isMobile)}>
+            Drag to move • Pinch to zoom • Tap to place
+          </p>
+        ) : (
+          <p>Drag to pan • Scroll to zoom • Click to place</p>
+        )}
       </div>
     </div>
   );
 }
 
 const styles = {
-  pageStyle: (theme) => ({
+  pageStyle: (theme, isMobile) => ({
     display: "flex",
     flexDirection: "column",
     height: "100vh",
@@ -601,6 +833,12 @@ const styles = {
     color: theme.textColor,
     fontFamily: "monospace",
     overflow: "hidden",
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    touchAction: isMobile ? "none" : "auto",
   }),
   loadingContainer: (theme) => ({
     display: "flex",
@@ -612,37 +850,60 @@ const styles = {
     color: theme.textColor,
     fontFamily: "monospace",
   }),
-  header: (theme) => ({
+  header: (theme, isMobile) => ({
     display: "flex",
+    flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "1rem 2rem",
+    padding: isMobile ? "0.5rem 1rem" : "1rem 2rem",
     backgroundColor: theme.inputBg,
     borderBottom: `1px solid ${theme.borderColor}`,
     zIndex: 10,
+    minHeight: isMobile ? "40px" : "auto",
   }),
-  title: (theme) => ({
+  title: (theme, isMobile) => ({
     margin: 0,
     color: theme.textColor,
     fontFamily: "monospace",
     fontWeight: "500",
-    fontSize: "2rem",
+    fontSize: isMobile ? "1.2rem" : "2rem",
   }),
-  userInfo: {
+  userInfo: (isMobile) => ({
     display: "flex",
+    flexDirection: isMobile ? "row" : "row",
     alignItems: "center",
-    gap: "1.5rem",
+    gap: isMobile ? "0.5rem" : "1.5rem",
+    position: isMobile ? "relative" : "static",
+  }),
+  usernameWrapper: {
+    position: "relative",
   },
   username: (theme) => ({
     color: theme.borderColor,
     fontWeight: "bold",
     fontSize: "0.9rem",
+    cursor: "pointer",
   }),
   userStat: (theme) => ({
     color: theme.textColor,
     fontSize: "0.9rem",
   }),
-  logoutButton: (theme) => ({
+  userDropdown: (theme) => ({
+    position: "absolute",
+    top: "120%",
+    right: 0,
+    backgroundColor: theme.inputBg,
+    border: `1px solid ${theme.borderColor}`,
+    zIndex: 20,
+    width: "180px",
+    boxShadow: "0 4px 8px rgba(0,0,0,0.2)",
+  }),
+  dropdownItem: {
+    padding: "0.7rem",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+    fontSize: "0.8rem",
+  },
+  logoutButton: (theme, isMobile) => ({
     backgroundColor: theme.buttonBg,
     color: theme.textColor,
     border: `1px solid ${theme.borderColor}`,
@@ -651,8 +912,11 @@ const styles = {
     fontSize: "0.9rem",
     borderRadius: "0",
     fontFamily: "'Jersey 15', sans-serif",
+    marginTop: isMobile ? "0.5rem" : 0,
+    alignSelf: isMobile ? "flex-start" : "auto",
   }),
-  colorPickerContainer: (theme) => ({
+  colorPickerContainer: (theme, isMobile) => ({
+    display: "flex",
     backgroundColor: theme.inputBg,
     borderBottom: `1px solid ${theme.borderColor}`,
     padding: "0.5rem",
@@ -660,22 +924,36 @@ const styles = {
     overflowY: "hidden",
     whiteSpace: "nowrap",
     zIndex: 10,
-    msOverflowStyle: "none", // IE and Edge
-    scrollbarWidth: "none", // Firefox
+    msOverflowStyle: "none",
+    scrollbarWidth: "none",
+    WebkitOverflowScrolling: "touch",
     "&::-webkit-scrollbar": {
-      display: "none", // Chrome, Safari, Opera
+      display: "none",
     },
+    alignItems: "center",
+    gap: isMobile ? "0.5rem" : "1rem",
   }),
-  colorPicker: (theme) => ({
+  drawModeButton: (theme) => ({
+    width: "2.5rem",
+    height: "2.5rem",
+    borderRadius: "4px",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    cursor: "pointer",
+    border: `1px solid ${theme.borderColor}`,
+    flexShrink: 0,
+  }),
+  colorPicker: (theme, isMobile) => ({
     display: "inline-flex",
     alignItems: "center",
-    gap: "1rem",
+    gap: isMobile ? "0.5rem" : "1rem",
     padding: "0 1rem",
     minWidth: "100%",
   }),
-  colorOption: (theme) => ({
-    width: "2rem",
-    height: "2rem",
+  colorOption: (theme, isMobile) => ({
+    width: isMobile ? "2.5rem" : "2rem",
+    height: isMobile ? "2.5rem" : "2rem",
     borderRadius: "0",
     cursor: "pointer",
     transition: "transform 0.2s ease",
@@ -685,9 +963,9 @@ const styles = {
     alignItems: "center",
     flexShrink: 0,
   }),
-  addColorButton: (theme) => ({
-    width: "2rem",
-    height: "2rem",
+  addColorButton: (theme, isMobile) => ({
+    width: isMobile ? "2.5rem" : "2rem",
+    height: isMobile ? "2.5rem" : "2rem",
     borderRadius: "0",
     cursor: "pointer",
     backgroundColor: "#F1F5F9",
@@ -719,14 +997,16 @@ const styles = {
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     zIndex: 20,
   },
-  colorPickerWrapper: {
+  colorPickerWrapper: (isMobile) => ({
     position: "relative",
     zIndex: 30,
     backgroundColor: "#fff",
     borderRadius: "4px",
     boxShadow: "0 0 10px rgba(0, 0, 0, 0.3)",
     padding: "1rem",
-  },
+    transform: isMobile ? "scale(0.85)" : "scale(1)",
+    transformOrigin: "center",
+  }),
   pickerActions: {
     display: "flex",
     justifyContent: "flex-end",
@@ -779,12 +1059,37 @@ const styles = {
     margin: "0.25rem 0",
     fontSize: "0.8rem",
   },
-  instructions: (theme) => ({
+  instructionText: (isMobile) => ({
+    margin: 0,
+    fontSize: isMobile ? "0.8rem" : "0.9rem",
+  }),
+  instructions: (theme, isMobile) => ({
     padding: "0.5rem",
     backgroundColor: theme.inputBg,
     borderTop: `1px solid ${theme.borderColor}`,
     textAlign: "center",
-    fontSize: "0.8rem",
+    fontSize: isMobile ? "1rem" : "0.8rem",
     color: theme.textColor,
+    fontWeight: isMobile ? "bold" : "normal",
+  }),
+  mobileControls: (theme) => ({
+    position: "absolute",
+    bottom: "20px",
+    right: "20px",
+    zIndex: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  }),
+  mobileControlButton: (theme) => ({
+    backgroundColor: `${theme.buttonBg}CC`,
+    color: theme.textColor,
+    border: `1px solid ${theme.borderColor}`,
+    padding: "10px 15px",
+    borderRadius: "50px",
+    fontSize: "0.9rem",
+    fontWeight: "bold",
+    cursor: "pointer",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
   }),
 };
