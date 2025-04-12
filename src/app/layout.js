@@ -14,6 +14,9 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "Mesh",
   description: "Collaborative canvas for making art, one pixel at a time.",
+  icons: {
+    icon: "/logo.ico",
+  },
 };
 
 export default function RootLayout({ children }) {
