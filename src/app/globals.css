@@ -30,3 +30,13 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.color-picker-container {
+  -ms-overflow-style: none;      
+  scrollbar-width: none;          
+  -webkit-overflow-scrolling: touch; 
+}
+
+.color-picker-container::-webkit-scrollbar {
+  display: none;
+}

@@ -680,6 +680,7 @@ export default function CanvasPage() {
       {/* Color tools - With draw mode button for both mobile and PC */}
       <div
         ref={colorPaletteRef}
+        className="color-picker-container"
         style={styles.colorPickerContainer(theme, isMobile)}>
         <div
           style={{
@@ -914,9 +915,6 @@ const styles = {
     msOverflowStyle: "none",
     scrollbarWidth: "none",
     WebkitOverflowScrolling: "touch",
-    "&::-webkit-scrollbar": {
-      display: "none",
-    },
     alignItems: "center",
     gap: isMobile ? "0.5rem" : "1rem",
   }),
