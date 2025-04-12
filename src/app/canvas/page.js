@@ -585,7 +585,7 @@ export default function CanvasPage() {
       </div>
 
       <div style={styles.instructions(theme)}>
-        <p>• Drag to pan • Scroll to zoom • Click to place •</p>
+        <p>Drag to pan • Scroll to zoom • Click to place</p>
       </div>
     </div>
   );
