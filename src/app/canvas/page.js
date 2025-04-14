@@ -519,20 +519,19 @@ export default function CanvasPage() {
         },
       });
 
-      // Update user data with cooldown
+      // Update user data with 20-second cooldown
       const userRef = doc(firestore, "users", user.uid);
-      const oneMinuteLater = new Date();
-      oneMinuteLater.setMinutes(oneMinuteLater.getMinutes() + 1);
+      const twentySecondsLater = new Date(now.getTime() + 20 * 1000);
 
       await updateDoc(userRef, {
-        placeTimer: Timestamp.fromDate(oneMinuteLater),
+        placeTimer: Timestamp.fromDate(twentySecondsLater),
         totalPlaced: totalPlaced + 1,
       });
 
       // Update local state
       setTotalPlaced((prev) => prev + 1);
       setCanPlace(false);
-      setTimeRemaining(COOLDOWN_TIME);
+      setTimeRemaining(20); // 20 seconds cooldown
 
       // Start countdown
       const timerInterval = setInterval(() => {
