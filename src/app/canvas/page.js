@@ -627,7 +627,24 @@ export default function CanvasPage() {
     <div style={styles.pageStyle(theme, isMobile)}>
       {/* Header - Desktop stays the same, Mobile is horizontal */}
       <div style={styles.header(theme, isMobile)}>
-        <h1 style={styles.title(theme, isMobile)}>Mesh.</h1>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: "2vh",
+          }}>
+          <div
+            style={{
+              height: isMobile ? "4vh" : "5vh",
+              width: isMobile ? "4vh" : "5vh",
+              backgroundRepeat: "no-repeat",
+              backgroundImage: `url("/logo.png")`,
+              backgroundSize: "contain",
+            }}></div>
+          <h1 style={styles.title(theme, isMobile)}>Mesh.</h1>
+        </div>
 
         {isMobile ? (
           <div style={styles.userInfo(isMobile)}>
