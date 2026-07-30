@@ -36,7 +36,12 @@ export default function CanvasPage() {
     textColor: "#F1F5F9",
   };
 
-  const defaultColors = ["#92B4F4", "#8CD3C5", "#669BBC", "#FFFFFF", "#16202A"];
+  // Exactly 10 default colors – the palette is now fixed to 10 slots
+  const defaultColors = [
+    "#92B4F4", "#8CD3C5", "#669BBC", "#FFFFFF", "#16202A",
+    "#FF6B6B", "#FECA57", "#48DBFB", "#FF9FF3", "#54A0FF",
+  ];
+
   const [customColors, setCustomColors] = useState(defaultColors);
   const [selectedColor, setSelectedColor] = useState(defaultColors[0]);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -60,23 +65,18 @@ export default function CanvasPage() {
   const auth = getAuth();
   const firestore = getFirestore();
 
-  const GRID_SIZE = 10; // Size of each cell in pixels at zoom level 1
-  const GRID_WIDTH = 200; // Number of cells in width
-  const GRID_HEIGHT = 100; // Number of cells in height
-  const COOLDOWN_TIME = 60; // Time in seconds before user can place another pixel
+  const GRID_SIZE = 10;
+  const GRID_WIDTH = 200;
+  const GRID_HEIGHT = 100;
+  const COOLDOWN_TIME = 60;
 
   // Detect mobile device
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth <= 768);
     };
-
-    // Check on initial load
     checkMobile();
-
-    // Add resize listener
     window.addEventListener("resize", checkMobile);
-
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
@@ -91,10 +91,8 @@ export default function CanvasPage() {
         setShowUserMenu(false);
       }
     };
-
     document.addEventListener("mousedown", handleOutsideClick);
     document.addEventListener("touchstart", handleOutsideClick);
-
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
       document.removeEventListener("touchstart", handleOutsideClick);
@@ -108,8 +106,6 @@ export default function CanvasPage() {
 
       if (currentUser) {
         setUser(currentUser);
-
-        // Get user data
         try {
           const userDoc = await getDoc(
             doc(firestore, "users", currentUser.uid)
@@ -120,9 +116,13 @@ export default function CanvasPage() {
             setUsername(userData.username || currentUser.email.split("@")[0]);
             setTotalPlaced(userData.totalPlaced || 0);
 
-            // Load saved custom colors if available
-            if (userData.customColors && Array.isArray(userData.customColors)) {
-              setCustomColors(userData.customColors);
+            // Load saved custom colors; ensure array is always exactly 10 elements
+            let savedColors = userData.customColors;
+            if (Array.isArray(savedColors) && savedColors.length === 10) {
+              setCustomColors(savedColors);
+            } else {
+              // If saved colors are missing or not exactly 10, use defaults
+              setCustomColors(defaultColors);
             }
 
             // Check if user can place a pixel
@@ -130,13 +130,11 @@ export default function CanvasPage() {
               const placeTime = userData.placeTimer.toDate();
               const now = new Date();
               const remainingTime = Math.ceil((placeTime - now) / 1000);
-
               if (remainingTime <= 0) {
                 setCanPlace(true);
               } else {
                 setCanPlace(false);
                 setTimeRemaining(remainingTime);
-
                 return () => clearInterval(timerInterval);
               }
             } else {
@@ -146,21 +144,18 @@ export default function CanvasPage() {
         } catch (error) {
           console.error("Error fetching user data:", error);
         }
-
         setLoading(false);
       } else {
-        // Redirect to login if not authenticated
         router.push("/login");
       }
     });
-
     return () => unsubscribe();
   }, [auth, router, firestore]);
 
-  // Save custom colors to user profile
+  // Save custom colors to user profile (debounced)
   useEffect(() => {
     const saveCustomColors = async () => {
-      if (user && customColors.length > 0) {
+      if (user && customColors.length === 10) {
         try {
           await updateDoc(doc(firestore, "users", user.uid), {
             customColors: customColors,
@@ -170,24 +165,20 @@ export default function CanvasPage() {
         }
       }
     };
-
-    // Debounce to avoid too many writes
     const timeoutId = setTimeout(saveCustomColors, 2000);
     return () => clearTimeout(timeoutId);
   }, [customColors, user, firestore]);
 
-  // Add horizontal scrolling to color palette
+  // Horizontal scrolling for color palette
   useEffect(() => {
     const paletteEl = colorPaletteRef.current;
     if (!paletteEl) return;
-
     const handleWheel = (e) => {
       if (e.deltaY !== 0) {
         e.preventDefault();
         paletteEl.scrollLeft += e.deltaY;
       }
     };
-
     paletteEl.addEventListener("wheel", handleWheel, { passive: false });
     return () => paletteEl.removeEventListener("wheel", handleWheel);
   }, []);
@@ -195,12 +186,9 @@ export default function CanvasPage() {
   // Fetch grid data with real-time updates
   useEffect(() => {
     if (!firestore) return;
-
-    // Create grid document if it doesn't exist
     const initializeGrid = async () => {
       const gridDocRef = doc(firestore, "canvas", "grid");
       const gridDoc = await getDoc(gridDocRef);
-
       if (!gridDoc.exists()) {
         await setDoc(gridDocRef, {
           cells: {},
@@ -208,10 +196,7 @@ export default function CanvasPage() {
         });
       }
     };
-
     initializeGrid();
-
-    // Set up real-time listener for grid updates
     const unsubscribe = onSnapshot(
       doc(firestore, "canvas", "grid"),
       (snapshot) => {
@@ -228,7 +213,6 @@ export default function CanvasPage() {
         console.error("Error getting grid updates:", error);
       }
     );
-
     return () => unsubscribe();
   }, [firestore]);
 
@@ -236,19 +220,15 @@ export default function CanvasPage() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     const totalWidth = GRID_WIDTH * GRID_SIZE * zoom;
     const totalHeight = GRID_HEIGHT * GRID_SIZE * zoom;
-
     canvas.width = totalWidth;
     canvas.height = totalHeight;
 
-    // Clear canvas
     ctx.fillStyle = "#F1F5F9";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw filled cells first
     Object.entries(gridData).forEach(([key, color]) => {
       const [x, y] = key.split(",").map(Number);
       ctx.fillStyle = color;
@@ -260,19 +240,14 @@ export default function CanvasPage() {
       );
     });
 
-    // Draw grid lines
     ctx.strokeStyle = "#92B4F4";
     ctx.lineWidth = 0.5 * zoom;
-
-    // Draw vertical lines
     for (let x = 0; x <= GRID_WIDTH; x++) {
       ctx.beginPath();
       ctx.moveTo(x * GRID_SIZE * zoom, 0);
       ctx.lineTo(x * GRID_SIZE * zoom, totalHeight);
       ctx.stroke();
     }
-
-    // Draw horizontal lines
     for (let y = 0; y <= GRID_HEIGHT; y++) {
       ctx.beginPath();
       ctx.moveTo(0, y * GRID_SIZE * zoom);
@@ -285,16 +260,13 @@ export default function CanvasPage() {
   const handleTouchStart = (e) => {
     e.preventDefault();
     setTouchStarted(true);
-
     if (e.touches.length === 1) {
-      // Single touch for dragging
       setIsDragging(true);
       setDragStart({
         x: e.touches[0].clientX - position.x,
         y: e.touches[0].clientY - position.y,
       });
     } else if (e.touches.length === 2) {
-      // Two touches for pinch-to-zoom
       const dist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -305,81 +277,58 @@ export default function CanvasPage() {
 
   const handleTouchMove = (e) => {
     e.preventDefault();
-
     if (!touchStarted) return;
-
     if (e.touches.length === 1 && isDragging) {
-      // Handle dragging (panning)
       setPosition({
         x: e.touches[0].clientX - dragStart.x,
         y: e.touches[0].clientY - dragStart.y,
       });
       setHoverInfo(null);
     } else if (e.touches.length === 2 && lastTouchDistance !== null) {
-      // Handle pinch-to-zoom
       const newDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-
       const ratio = newDist / lastTouchDistance;
       const newZoom = Math.min(Math.max(zoom * ratio, 0.5), 5);
-
       setZoom(newZoom);
       setLastTouchDistance(newDist);
     }
   };
 
   const handleTouchEnd = (e) => {
-    // Determine if this was a tap or a drag
     if (isDragging && touchStarted && !e.touches.length) {
-      // Only register a tap if we didn't move much
-      const moveThreshold = 10; // pixels
+      const moveThreshold = 10;
       const moveX = Math.abs(
         position.x - (dragStart.x - e.changedTouches[0].clientX)
       );
       const moveY = Math.abs(
         position.y - (dragStart.y - e.changedTouches[0].clientY)
       );
-
       if (moveX < moveThreshold && moveY < moveThreshold && drawMode) {
-        // This was a tap, handle it like a click
         handleCanvasTap(e.changedTouches[0]);
       }
     }
-
     setIsDragging(false);
     setTouchStarted(false);
     setLastTouchDistance(null);
   };
 
-  // Handle canvas tap for mobile
   const handleCanvasTap = (touch) => {
     if (!canvasRef.current || !drawMode) return;
-
     const rect = canvasRef.current.getBoundingClientRect();
     const x = Math.floor((touch.clientX - rect.left) / (GRID_SIZE * zoom));
     const y = Math.floor((touch.clientY - rect.top) / (GRID_SIZE * zoom));
-
-    // Ensure coordinates are within the grid
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
       const cellKey = `${x},${y}`;
       setLastCellClicked(cellKey);
-
-      // Check if user can place a pixel
-      if (!canPlace || !user) {
-        console.log("Cannot place pixel now");
-        return;
-      }
-
+      if (!canPlace || !user) return;
       placeTile(x, y);
     }
   };
 
-  // Handle mouse down for dragging
   const handleMouseDown = (e) => {
     if (e.button === 0) {
-      // Left click
       setIsDragging(true);
       setDragStart({
         x: e.clientX - position.x,
@@ -388,7 +337,6 @@ export default function CanvasPage() {
     }
   };
 
-  // Handle mouse move for dragging
   const handleMouseMove = (e) => {
     if (isDragging) {
       setPosition({
@@ -397,22 +345,17 @@ export default function CanvasPage() {
       });
       setHoverInfo(null);
     } else {
-      // If not dragging, check for hover info
       const coordinates = calculateGridCoordinates(e);
       if (coordinates) {
         const { x, y } = coordinates;
         const cellKey = `${x},${y}`;
-
         if (gridData[cellKey]) {
           const color = gridData[cellKey];
           const metadata = gridMetadata[cellKey];
-
-          // Convert hex to RGB
           const hex = color.replace("#", "");
           const r = parseInt(hex.substring(0, 2), 16);
           const g = parseInt(hex.substring(2, 4), 16);
           const b = parseInt(hex.substring(4, 6), 16);
-
           setHoverInfo({
             x: e.clientX,
             y: e.clientY,
@@ -432,12 +375,10 @@ export default function CanvasPage() {
     }
   };
 
-  // Handle mouse up to stop dragging
   const handleMouseUp = () => {
     setIsDragging(false);
   };
 
-  // Handle zoom with wheel
   const handleWheel = (e) => {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -445,71 +386,38 @@ export default function CanvasPage() {
     setZoom(newZoom);
   };
 
-  // Handle color change from the color picker
+  // Color picker logic – now only editing existing slots
   const handleColorChange = (color) => {
-    const newColor = color.hex;
-
     if (editingColorIndex !== null) {
-      // Update an existing color
       const updatedColors = [...customColors];
-      updatedColors[editingColorIndex] = newColor;
+      updatedColors[editingColorIndex] = color.hex;
       setCustomColors(updatedColors);
-      setSelectedColor(newColor);
+      setSelectedColor(color.hex);
     }
   };
 
-  // Add a new color to the palette
-  const addNewColor = () => {
-    // Default to a random color
-    const randomColor = `#${Math.floor(Math.random() * 16777215)
-      .toString(16)
-      .padStart(6, "0")}`;
-    const newColors = [...customColors, randomColor];
-    setCustomColors(newColors);
-    setSelectedColor(randomColor);
-    setEditingColorIndex(newColors.length - 1);
-    setShowColorPicker(true);
-
-    // Scroll to the end of the palette
-    setTimeout(() => {
-      if (colorPaletteRef.current) {
-        colorPaletteRef.current.scrollLeft =
-          colorPaletteRef.current.scrollWidth;
-      }
-    }, 10);
-  };
-
-  // Handle clicking on a color in the palette
   const handleColorClick = (color, index) => {
     setSelectedColor(color);
     setEditingColorIndex(index);
     setShowColorPicker(true);
   };
 
-  // Calculate grid coordinates from click event
   const calculateGridCoordinates = (e) => {
     if (!canvasRef.current) return null;
-
     const rect = canvasRef.current.getBoundingClientRect();
     const x = Math.floor((e.clientX - rect.left) / (GRID_SIZE * zoom));
     const y = Math.floor((e.clientY - rect.top) / (GRID_SIZE * zoom));
-
-    // Ensure coordinates are within the grid
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
       return { x, y };
     }
     return null;
   };
 
-  // Place a tile at the given coordinates
   const placeTile = async (x, y) => {
     const cellKey = `${x},${y}`;
-
     try {
-      // Update grid in Firestore
       const gridRef = doc(firestore, "canvas", "grid");
       const now = new Date();
-
       await updateDoc(gridRef, {
         [`cells.${cellKey}`]: selectedColor,
         [`metadata.${cellKey}`]: {
@@ -518,22 +426,15 @@ export default function CanvasPage() {
           timestamp: Timestamp.fromDate(now),
         },
       });
-
-      // Update user data with 20-second cooldown
       const userRef = doc(firestore, "users", user.uid);
       const twentySecondsLater = new Date(now.getTime() + 20 * 1000);
-
       await updateDoc(userRef, {
         placeTimer: Timestamp.fromDate(twentySecondsLater),
         totalPlaced: totalPlaced + 1,
       });
-
-      // Update local state
       setTotalPlaced((prev) => prev + 1);
       setCanPlace(false);
-      setTimeRemaining(20); // 20 seconds cooldown
-
-      // Start countdown
+      setTimeRemaining(20);
       const timerInterval = setInterval(() => {
         setTimeRemaining((prev) => {
           if (prev <= 1) {
@@ -549,24 +450,14 @@ export default function CanvasPage() {
     }
   };
 
-  // Handle cell click to place color
   const handleCanvasClick = async (e) => {
-    // Prevent handling click if we're dragging
     if (isDragging || !drawMode) return;
-
     const coordinates = calculateGridCoordinates(e);
     if (!coordinates) return;
-
     const { x, y } = coordinates;
     const cellKey = `${x},${y}`;
     setLastCellClicked(cellKey);
-
-    // Check if user can place a pixel
-    if (!canPlace || !user) {
-      console.log("Cannot place pixel now");
-      return;
-    }
-
+    if (!canPlace || !user) return;
     placeTile(x, y);
   };
 
@@ -579,36 +470,30 @@ export default function CanvasPage() {
     }
   };
 
-  // Format remaining time as MM:SS
   const formatTimeRemaining = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
   };
 
-  // Toggle custom color picker
   const closeColorPicker = () => {
     setShowColorPicker(false);
     setEditingColorIndex(null);
   };
 
-  // Toggle the user menu on mobile
   const toggleUserMenu = () => {
     setShowUserMenu(!showUserMenu);
   };
 
-  // Toggle drawing mode
   const toggleDrawMode = () => {
     setDrawMode(!drawMode);
   };
 
-  // Mobile reset view button handler
   const handleResetView = () => {
     setPosition({ x: 0, y: 0 });
     setZoom(1);
   };
 
-  // If still loading or user not authenticated, show loading screen or redirect
   if (loading) {
     return (
       <div style={styles.loadingContainer(theme)}>
@@ -618,13 +503,12 @@ export default function CanvasPage() {
   }
 
   if (!user) {
-    // This is a safeguard, the useEffect should already redirect
     return null;
   }
 
   return (
     <div style={styles.pageStyle(theme, isMobile)}>
-      {/* Header - Desktop stays the same, Mobile is horizontal */}
+      {/* Header */}
       <div style={styles.header(theme, isMobile)}>
         <div
           style={{
@@ -693,7 +577,7 @@ export default function CanvasPage() {
         )}
       </div>
 
-      {/* Color tools - With draw mode button for both mobile and PC */}
+      {/* Color tools – "+" button removed, palette fixed to 10 slots */}
       <div
         ref={colorPaletteRef}
         className="color-picker-container"
@@ -719,11 +603,7 @@ export default function CanvasPage() {
               onClick={() => handleColorClick(color, index)}
             />
           ))}
-          <div
-            style={styles.addColorButton(theme, isMobile)}
-            onClick={addNewColor}>
-            <span style={styles.customColorText}>+</span>
-          </div>
+          {/* Add color button removed */}
         </div>
       </div>
 
@@ -751,6 +631,7 @@ export default function CanvasPage() {
         </div>
       )}
 
+      {/* Canvas */}
       <div
         ref={gridContainerRef}
         style={styles.canvasContainer}
@@ -777,7 +658,6 @@ export default function CanvasPage() {
           <canvas ref={canvasRef} style={styles.canvas} />
         </div>
 
-        {/* Hover tooltip - only show on desktop */}
         {hoverInfo && !isMobile && (
           <div
             style={{
@@ -801,7 +681,6 @@ export default function CanvasPage() {
           </div>
         )}
 
-        {/* Mobile controls */}
         {isMobile && (
           <div style={styles.mobileControls(theme)}>
             <button
@@ -964,24 +843,7 @@ const styles = {
     alignItems: "center",
     flexShrink: 0,
   }),
-  addColorButton: (theme, isMobile) => ({
-    width: isMobile ? "2.5rem" : "2rem",
-    height: isMobile ? "2.5rem" : "2rem",
-    borderRadius: "0",
-    cursor: "pointer",
-    backgroundColor: "#F1F5F9",
-    boxShadow: `0 0 0 1px ${theme.borderColor}`,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    flexShrink: 0,
-  }),
-  customColorText: {
-    fontSize: "1.5rem",
-    fontWeight: "bold",
-    color: "#16202A",
-    userSelect: "none",
-  },
+  // Removed addColorButton style (no longer needed)
   popover: {
     position: "fixed",
     top: "50%",
